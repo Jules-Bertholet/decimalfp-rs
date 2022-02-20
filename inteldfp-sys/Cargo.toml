@@ -1,0 +1,29 @@
+[package]
+name = "inteldfp-sys"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+
+[features]
+default = ["compiler_native_f80", "compiler_native_f128"]
+compiler_native_f80 = []
+compiler_native_f128 = []
+# https://sourceware.org/git/?p=glibc.git;a=blob_plain;f=NEWS;hb=HEAD
+glibc_2_26 = ["compiler_native_f128"]
+libquadmath = ["compiler_native_f128"]
+lto = []
+#no_pic = []
+#no_pie = ["no_pic"]
+
+[dependencies]
+
+[build-dependencies]
+bindgen = "0.60.1"
+build-rs = "0.1.2"
+cc = { version = "1.0.73", features = ["parallel"] }
+flate2 = "1.0.24"
+tar = "0.4.38"
