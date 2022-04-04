@@ -1,11 +1,146 @@
 [package]
 name = "decimalfp"
 version = "0.1.0"
+authors = ["Jules Bertholet <jules.bertholet@quoi.xyz>"]
 edition = "2021"
+repository = "https://github.com/Jules-Bertholet/decimalfp-rs/tree/master/decimalfp"
+license = "MIT OR Apache-2.0"
+keywords = ["float", "decimal"]
+categories = ["api-bindings", "mathematics"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 
+[features]
+default = ["compiler_native_f80", "compiler_native_f128"]
+# Enable this feature to allow writing decimal literals that overflow to ±infinity
+allow_overflowing_literals = [
+	"decimalfp_macros_support/allow_overflowing_literals",
+]
+compiler_native_f80 = ["inteldfp-sys/compiler_native_f80"]
+compiler_native_f128 = ["inteldfp-sys/compiler_native_f128"]
+glibc_2_26 = ["inteldfp-sys/glibc_2_26", "compiler_native_f128"]
+libquadmath = ["inteldfp-sys/libquadmath", "compiler_native_f128"]
+lto = ["inteldfp-sys/lto"]
+#no_pic = ["inteldfp-sys/no_pic"]
+#no_pie = ["inteldfp-sys/no_pie", "no_pic"]
+
+# For testing only
+build_with_all_features = ["rkyv?/size_32"]
+
+# Optional dependencies
+
+alga = ["dep:alga", "approx-0_3", "num-traits"]
+bigdecimal = ["dep:bigdecimal", "num-traits"]
+decorum = ["dep:decorum", "num-traits"]
+euclid = ["dep:euclid", "num-traits"]
+fake = ["dep:fake", "rand"]
+lyon_geom = ["dep:lyon_geom", "euclid"]
+ndarray = ["dep:ndarray", "num-traits"]
+ndarray-stats = ["dep:ndarray-stats", "dep:noisy_float", "ndarray"]
+num-bigint = ["dep:num-bigint", "num-traits"]
+num-complex = ["dep:num-complex", "num-traits"]
+num-dual = ["dep:num-dual", "num-traits"]
+rug = ["dep:rug", "num-traits"]
+rust_decimal = ["dep:rust_decimal", "num-traits"]
+simba = ["dep:simba", "approx", "num-traits"]
+
 [dependencies]
-inteldfp-sys = { version = "0.1.0", path = "../inteldfp-sys"}
+alga = { version = "0.9.3", optional = true, default-features = false }
+almost = { version = "0.2.0", optional = true }
+approx = { version = "0.5.1", optional = true, default-features = false }
+approx-0_3 = { package = "approx", version = "0.3.2", optional = true, default-features = false }
+approx-0_4 = { package = "approx", version = "0.4.0", optional = true, default-features = false }
+arbitrary = { version = "1.1.0", optional = true }
+az = { version = "1.2.0", optional = true }
+bigdecimal = { version = "0.3.0", optional = true, default-features = false }
+cast = { version = "0.3.0", optional = true }
+borsh = { version = "0.9.3", optional = true, default-features = false }
+bytecheck = { version = "0.6.8", optional = true, default-features = false }
+bytemuck = { version = "1.9.1", optional = true }
+dec = { version = "0.4.8", optional = true }
+decimal = { version = "2.1.0", optional = true, default-features = false }
+decorum = { version = "0.3.1", optional = true, default-features = false }
+ethnum = { version = "1.2.1", optional = true, default-features = false }
+euclid = { version = "0.22.7", optional = true, default-features = false }
+float_eq = { version = "1.0.0", optional = true, default-features = false }
+fake = { version = "2.4.3", optional = true }
+float_next_after = { version = "0.1.5", optional = true }
+funty = { version = "2.0.0", optional = true, default-features = false }
+gc = { version = "0.4.1", optional = true }
+half = { version = "1.8.2", optional = true, default-features = false }
+lyon_geom = { version = "0.17.7", optional = true }
+ndarray = { version = "0.15.4", optional = true, default-features = false, features = [
+	"std",
+] } # FIXME no-std
+ndarray-stats = { version = "0.5.0", optional = true }
+num-bigint = { version = "0.4.3", optional = true, default-features = false }
+num-complex = { version = "0.4.1", optional = true, default-features = false }
+num-dual = { version = "0.5.2", optional = true, default-features = false }
+num-traits = { version = "0.2.15", optional = true } # FIXME no-std
+number_prefix = { version = "0.4.0", optional = true, default-features = false }
+ord_subset = { version = "3.1.1", optional = true, default-features = false }
+option-operations = { version = "0.4.0", optional = true, default-features = false }
+primitive-types = { version = "0.11.1", optional = true, default-features = false }
+quickcheck = { version = "1.0.3", optional = true, default-features = false }
+rand = { version = "0.8.5", optional = true, default-features = false }
+rkyv = { version = "0.7.38", optional = true, default-features = false }
+rocket = { version = "0.5.0-rc.2", optional = true }
+rug = { version = "1.16.0", optional = true, default-features = false, features = [
+	"num-traits",
+] }
+rusqlite = { version = "0.27.0", optional = true }
+rust_decimal = { version = "1.24.0", optional = true, default-features = false, features = [
+	"maths",
+] }
+safe-transmute = { version = "0.11.2", optional = true, default-features = false }
+simba = { version = "0.7.1", optional = true, default-features = false }
+serde = { version = "1.0.137", optional = true, default-features = false } # FIXME serde-json arbitrary precision
+sprs = { version = "0.11.0", optional = true, default-features = false }
+zerocopy = { version = "0.6.1", optional = true }
+zeroize = { version = "1.5.5", optional = true, default-features = false }
+
+# FIXME: potential future integrations
+# conv (very old)
+# float-cmp
+# easy_cast
+# ieee754
+# num-rational
+# proptest
+
+# plotters
+# various sql
+# python ffi
+# decimal_rs
+# separator
+# palette
+# other big nums
+# fixed
+# decimal_rs
+# amplify_num
+# mathru
+# random
+# statrs
+# matrixcompare
+# splines
+# rv
+# special
+# clnooms
+# f128
+# cauchy (need complex)
+# darling
+# emath
+# uom
+# vek
+
+# Dependencies of optional dependencies
+noisy_float = { version = "0.2.0", optional = true }
+
+# Required dependecies
+bitflags = "1.3.2"
+cfg-if = "1.0.0"
+forward_ref = "1.0.0"
+inteldfp-sys = { version = "0.1.0", path = "../inteldfp-sys", default-features = false }
+paste = "1.0.7"
+decimalfp_macros_support = { version = "0.0.1", path = "../decimalfp_macros_support" }

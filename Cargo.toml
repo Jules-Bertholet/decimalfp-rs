@@ -1,2 +1,3 @@
 [workspace]
-members = ["inteldfp-sys", "decimalfp"]
+members = ["decimalfp", "inteldfp-sys", "decimalfp_macros_support"]
+resolver = "2"
