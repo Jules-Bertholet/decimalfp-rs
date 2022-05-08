@@ -1,0 +1,170 @@
+name: Run tests
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+  schedule:
+    - cron: "25 22 * * 1"
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    env:
+      CROSS_CONTAINER_ENGINE: podman
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            toolchain: stable
+            os: ubuntu-latest
+            shell: bash
+            cargo: cargo
+
+          - target: i686-unknown-linux-gnu
+            toolchain: stable
+            os: ubuntu-latest
+            shell: bash
+            cargo: cargo
+
+          - target: x86_64-pc-windows-msvc
+            toolchain: stable
+            os: windows-latest
+            shell: powershell
+            cargo: cargo
+
+          - target: i686-pc-windows-msvc
+            toolchain: stable
+            os: windows-latest
+            shell: powershell
+            cargo: cargo
+
+          - target: x86_64-pc-windows-gnu
+            toolchain: stable-x86_64-pc-windows-gnu
+            mingw: mingw-w64-x86_64
+            os: windows-latest
+            msystem: mingw64
+            shell: msys2
+            cargo: cargo
+
+          # - target: i686-pc-windows-gnu
+          #  toolchain: stable-x86_64-pc-windows-gnu
+          #  mingw: mingw-w64-i686
+          #  os: windows-latest
+          #  msystem: mingw32
+          #  shell: msys2
+          #  cargo: cargo
+
+          - target: x86_64-apple-darwin
+            toolchain: stable
+            os: macos-latest
+            shell: bash
+            cargo: cargo
+
+          # - target: aarch64-unknown-linux-gnu
+          #   toolchain: stable
+          #   os: ubuntu-latest
+          #   shell: bash
+          #   cargo: cross
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          components: clippy, rustfmt
+          target: ${{ matrix.target }}
+          toolchain: ${{ matrix.toolchain }}
+
+      - name: Get Rust LLVM version
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: 'echo "LLVM_VERSION=$(rustc -v --version | grep -oP ''(?<=LLVM version: )[0-9]+'')" >> $GITHUB_ENV'
+
+      - name: Install LLVM toolchain
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh ${{ env.LLVM_VERSION }}
+
+      - name: Install gcc-multilib
+        if:  matrix.target == 'i686-unknown-linux-gnu'
+        run: sudo apt-get update ; sudo apt-get install gcc-multilib
+
+      - name: Install MSVC toolchain
+        if: contains(matrix.target, 'windows-msvc')
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install MSYS2 toolchain
+        if: contains(matrix.target, 'windows-gnu')
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          path-type: inherit
+          install: >-
+            base-devel
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-clang
+            ${{ matrix.mingw }}-toolchain
+            ${{ matrix.mingw }}-clang
+
+      - name: Install cross
+        if: matrix.cargo == 'cross'
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Install clippy SARIF tools
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: cargo install clippy-sarif sarif-fmt
+
+      - name: Check formatting
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: cargo fmt --all --check
+
+      - name: Run inteldfp-sys tests (no default features)
+        run: ${{ matrix.shell }} -c '${{ matrix.cargo }} test --package inteldfp-sys --no-default-features --target ${{ matrix.target }}'
+
+      - name: Run decimalfp tests (no default features)
+        run: ${{ matrix.shell }} -c '${{ matrix.cargo }} test --package decimalfp --no-default-features --target ${{ matrix.target }}'
+
+      - name: Run inteldfp-sys tests (default features)
+        run: ${{ matrix.shell }} -c '${{ matrix.cargo }} test --package inteldfp-sys --target ${{ matrix.target }}'
+
+      - name: Run decimalfp tests (default features)
+        run: ${{ matrix.shell }} -c '${{ matrix.cargo }} test --package decimalfp --target ${{ matrix.target }}'
+
+      - name: Run inteldfp-sys tests (all features)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: env
+          CC_${{ matrix.target }}="clang-${{ env.LLVM_VERSION }}"
+          CXX_${{ matrix.target }}="clang++-${{ env.LLVM_VERSION }}"
+          RUSTFLAGS="-Clinker-plugin-lto -Clinker=clang-${{ env.LLVM_VERSION }} -Clink-arg=-fuse-ld=lld-${{ env.LLVM_VERSION }}"
+          RUSTDOCFLAGS="-Clinker-plugin-lto -Clinker=clang-${{ env.LLVM_VERSION }} -Clink-arg=-fuse-ld=lld-${{ env.LLVM_VERSION }}"
+          cargo test --package inteldfp-sys --all-features --target ${{ matrix.target }}
+
+      - name: Run decimalfp tests (all features)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: env
+          CC_${{ matrix.target }}="clang-${{ env.LLVM_VERSION }}"
+          CXX_${{ matrix.target }}="clang++-${{ env.LLVM_VERSION }}"
+          RUSTFLAGS="-Clinker-plugin-lto -Clinker=clang-${{ env.LLVM_VERSION }} -Clink-arg=-fuse-ld=lld-${{ env.LLVM_VERSION }}"
+          RUSTDOCFLAGS="-Clinker-plugin-lto -Clinker=clang-${{ env.LLVM_VERSION }} -Clink-arg=-fuse-ld=lld-${{ env.LLVM_VERSION }}"
+          cargo test --package decimalfp --all-features --target ${{ matrix.target }}
+
+      - name: Run clippy (all features)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: env
+          CC_${{ matrix.target }}="clang-${{ env.LLVM_VERSION }}"
+          CXX_${{ matrix.target }}="clang++-${{ env.LLVM_VERSION }}"
+          RUSTFLAGS="-Clinker-plugin-lto -Clinker=clang-${{ env.LLVM_VERSION }} -Clink-arg=-fuse-ld=lld-${{ env.LLVM_VERSION }}"
+          RUSTDOCFLAGS="-Clinker-plugin-lto -Clinker=clang-${{ env.LLVM_VERSION }} -Clink-arg=-fuse-ld=lld-${{ env.LLVM_VERSION }}"
+          cargo clippy --all --all-features --target ${{ matrix.target }} --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+
+      - name: Upload clippy analysis results to GitHub
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: rust-clippy-results.sarif
+          wait-for-processing: true
