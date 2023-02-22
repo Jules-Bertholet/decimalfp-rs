@@ -15,4 +15,4 @@ allow_overflowing_literals = []
 
 [dependencies]
 inteldfp-sys = { version = "0.1.0", path = "../inteldfp-sys", default-features = false }
-quote = "1.0.18"
+quote = "1.0.23"

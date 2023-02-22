@@ -2,6 +2,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![doc = concat!("```text\n", include_str!(concat!(env!("OUT_DIR"), "/IntelRDFPMathLib20U2/README")), "\n```")]
+#![no_std]
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 

@@ -22,8 +22,8 @@ lto = []
 [dependencies]
 
 [build-dependencies]
-bindgen = "0.60.1"
+bindgen = "0.64.0"
 build-rs = "0.1.2"
-cc = { version = "1.0.73", features = ["parallel"] }
-flate2 = "1.0.24"
+cc = { version = "1.0.79", features = ["parallel"] }
+flate2 = "1.0.25"
 tar = "0.4.38"

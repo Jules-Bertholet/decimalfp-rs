@@ -1,4 +1,5 @@
-#![warn(/*clippy::cargo, */clippy::pedantic)] // TODO
+#![forbid(unsafe_op_in_unsafe_fn)]
+#![warn(/*missing_docs, */missing_debug_implementations, unused_crate_dependencies, clippy::pedantic)]
 
 use core::str::FromStr;
 use proc_macro::{Group, Ident, Literal, Span, TokenStream, TokenTree};
@@ -95,7 +96,7 @@ fn to_bits(width: usize, stream: &TokenStream) -> TokenStream {
 
     let literal_string = stream
         .to_string()
-        .trim_end_matches(&format!("df{}", width))
+        .trim_end_matches(&format!("df{width}"))
         .to_owned()
         .replace('_', "");
 

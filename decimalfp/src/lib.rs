@@ -1,26 +1,53 @@
-#![forbid(unsafe_op_in_unsafe_fn)]
-#![warn(/*missing_docs, */missing_debug_implementations, unused_crate_dependencies, /*clippy::cargo, */clippy::pedantic)] // TODO
-#![allow(clippy::borrow_as_ptr, clippy::wildcard_imports)]
+//! Decimal floating point arithmetic in Rust, using the
+//! [Intel Decimal Floating-Point Math Library](https://www.intel.com/content/www/us/en/developer/articles/tool/intel-decimal-floating-point-math-library.html).
+//! 
+//! Conforms to the IEEE 754-2019 decimal floating point standard.
+//! 
+//! # Example
+//! 
+//! ```
+//! use decimalfp::prelude::*;
+//! 
+//! let a = d64!(1.0);
+//! let b = d64!(4.7);
+//! 
+//! let result = a * powi(b, 2);
+//! ```
 
+#![forbid(unsafe_op_in_unsafe_fn)]
+#![warn(
+    missing_docs,
+    missing_debug_implementations,
+    unused_crate_dependencies
+    /*clippy::cargo*/
+)]
+#![no_std]
+
+extern crate alloc;
+
+use alloc::{
+    borrow::ToOwned,
+    ffi::CString,
+    string::{String, ToString},
+};
 use bitflags::bitflags;
 use core::{
     cmp::Ordering,
     convert::Infallible,
+    ffi::{c_char, CStr},
     fmt,
     iter::{Product, Sum},
     mem::MaybeUninit,
     num::FpCategory,
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign},
+    ptr,
     str::FromStr,
 };
 use decimalfp_macros_support::replace;
 use forward_ref::{forward_ref_binop, forward_ref_op_assign, forward_ref_unop};
 use paste::paste;
-use std::{
-    ffi::{CStr, CString},
-    os::raw::c_char,
-};
 
+#[allow(clippy::wildcard_imports)]
 use inteldfp_sys::*;
 
 mod private {
@@ -43,13 +70,26 @@ cfg_if::cfg_if! {
     }
 }
 
+/// Rounding mode for operations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub enum Rounding {
+    /// The default rounding mode, and also the most "fair".
+    /// Rounds to the nearest number, breaking ties by rounding
+    /// to the even number.
     TiesToEven = BID_ROUNDING_TO_NEAREST,
+
+    /// Rounds to the nearest number, breaking ties by rounding away from 0.
+    /// The rounding you perhaps learned in school.
     TiesToAway = BID_ROUNDING_TIES_AWAY,
+
+    /// Always round toward positive infinity.
     TowardPositive = BID_ROUNDING_UP,
+
+    /// Always round toward negative infinity.
     TowardNegative = BID_ROUNDING_DOWN,
+
+    /// Always round toward zero.
     TowardZero = BID_ROUNDING_TO_ZERO,
 }
 
@@ -66,19 +106,39 @@ impl Rounding {
     }
 }
 
+/// Ranges that a floating-point number can fall into.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(i32)]
 pub enum Class {
     // values from `bid_internal.h` `enum class_types`
+    /// A signaling NaN.
     SignalingNan = 0,
+
+    /// A quiet NaN.
     QuietNan = 1,
+
+    /// Negative infinity.
     NegativeInfinite = 2,
+
+    /// A non-subnormal real number less than 0.
     NegativeNormal = 3,
+
+    /// A negative subnormal real number.
     NegativeSubnormal = 4,
+
+    /// Negative zero.
     NegativeZero = 5,
+
+    /// Positive zero.
     PositiveZero = 6,
+
+    /// A positive subnormal real number.
     PositiveSubnormal = 7,
+
+    /// A normal real number greater than 0.
     PositiveNormal = 8,
+
+    /// Positive infinity.
     PositiveInfinite = 9,
 }
 
@@ -95,8 +155,14 @@ impl From<Class> for FpCategory {
 }
 
 pub mod context {
+    //! Defines the [`Context`] struct, which stores the current rounding mode
+    //! and floating-point flags. You don't need to use this struct for most operations,
+    //! unless you want to use a non-default rounding mode or care about flags.
+    //! If you do care about these things, operate on decimals using the methods of [`Context`].
+
     use super::*;
 
+    /// Stores the current rounding mode and floating-point flags.
     #[derive(Clone, Debug, Default)]
     pub struct Context {
         pub(super) rounding: Rounding,
@@ -160,6 +226,7 @@ pub mod context {
             unsafe { __bid_restoreFlags(flags.bits(), mask.bits(), self.flags.as_mut_ptr()) }
         }
 
+        /*
         #[must_use]
         #[inline]
         pub fn save_flags(&mut self, mask: Flags) -> Flags {
@@ -167,6 +234,7 @@ pub mod context {
                 Flags::from_bits_unchecked(__bid_saveFlags(mask.bits(), self.flags.as_mut_ptr()))
             }
         }
+        */
 
         /// IEEE 754 5.7.4 **saveAllFlags**
         #[doc(alias = "saveAllFlags")]
@@ -203,6 +271,7 @@ pub mod context {
         pub struct Flags: _IDEC_flags {
             /// IEEE 754 7.2
             const INVALID_OPERATION = DEC_FE_INVALID;
+            /// A non-normal float was encountered.
             const DENORMAL = DEC_FE_UNNORMAL;
             /// IEEE 754 7.3
             const DIVISION_BY_ZERO = DEC_FE_DIVBYZERO;
@@ -228,11 +297,11 @@ pub mod context {
         }
 
         pub(super) fn as_ptr(self) -> *const _IDEC_flags {
-            &self.bits as *const _IDEC_flags
+            ptr::addr_of!(self.bits)
         }
 
         pub(super) fn as_mut_ptr(&mut self) -> *mut _IDEC_flags {
-            &mut self.bits as *mut _IDEC_flags
+            ptr::addr_of_mut!(self.bits)
         }
     }
 
@@ -254,6 +323,7 @@ pub mod context {
             }
         )*}) => {
 
+            /// Trait implemented by all decimal floating-point types.
             pub trait Decimal: private::Sealed { replace! { DecimalXX, Self, $(
                 #[doc(hidden)]
                 fn $fn_name($ctx: &mut Context $(, $arg : $arg_ty)*) $(-> $fn_ret)?;
@@ -808,7 +878,7 @@ pub mod context {
         }
     }
 
-    macro_rules! non_homo_op_letters {
+    macro_rules! op_letters {
         ($i:ident, 32, 32 -> 32) => {
             paste! { [<__bid32_$i>] }
         };
@@ -895,23 +965,24 @@ pub mod context {
         };
     }
 
-    macro_rules! ctx_non_homo_binop {
+    macro_rules! ctx_binop {
         (
-            impl DecimalNonHomogeneousBinop where XX = <$(($l:literal, $r:literal, $ret:literal)),+> $tt:tt
+            impl DecimalBinop where XX = <$(($l:literal, $r:literal, $ret:literal)),+> $tt:tt
         ) => {
-            ctx_non_homo_binop_def!(impl DecimalNonHomogeneousBinop $tt);
+            ctx_binop_def!(impl DecimalBinop $tt);
 
-            $(ctx_non_homo_binop_impl!(impl DecimalNonHomogeneousBinop<$l, $r> for $ret $tt);)+
+            $(ctx_binop_impl!(impl DecimalBinop<$l, $r> for $ret $tt);)+
         };
     }
 
-    macro_rules! ctx_non_homo_binop_def {
-        (impl DecimalNonHomogeneousBinop { $(
+    macro_rules! ctx_binop_def {
+        (impl DecimalBinop { $(
             $(#[$attr:meta])*
             pub fn $fn_name:ident;
         )*}) => {
 
-            pub trait DecimalNonHomogeneousBinop<L: Decimal, R: Decimal>: Decimal { $(
+            /// Implemented for pairs of decimal types that can be combined in binary operations.
+            pub trait DecimalBinop<L: Decimal, R: Decimal>: Decimal { $(
                 #[doc(hidden)]
                 fn $fn_name(ctx: &mut Context, x: L, y: R) -> Self;
             )*}
@@ -919,25 +990,25 @@ pub mod context {
             #[allow(clippy::wrong_self_convention)]
             impl Context { $(
                 $(#[$attr])*
-                pub fn $fn_name<L: Decimal, R: Decimal, Ret: DecimalNonHomogeneousBinop<L, R>>(&mut self, x: L, y: R) -> Ret {
-                    <Ret as DecimalNonHomogeneousBinop<L, R>>::$fn_name(self, x, y)
+                pub fn $fn_name<L: Decimal, R: Decimal, Ret: DecimalBinop<L, R>>(&mut self, x: L, y: R) -> Ret {
+                    <Ret as DecimalBinop<L, R>>::$fn_name(self, x, y)
                 }
             )*}
         };
     }
 
-    macro_rules! ctx_non_homo_binop_impl {
-        (impl DecimalNonHomogeneousBinop<$l:literal, $r:literal> for $out:literal {$(
+    macro_rules! ctx_binop_impl {
+        (impl DecimalBinop<$l:literal, $r:literal> for $out:literal {$(
             $(#[$attr:meta])*
             pub fn $fn_name:ident;
         )*}) => { paste! {
 
-            impl DecimalNonHomogeneousBinop<[<Decimal$l>], [<Decimal$r>]> for [<Decimal$out>] { $(
+            impl DecimalBinop<[<Decimal$l>], [<Decimal$r>]> for [<Decimal$out>] { $(
                 $(#[$attr])*
                 #[inline]
                 fn $fn_name(ctx: &mut Context, x: [<Decimal$l>], y: [<Decimal$r>]) -> [<Decimal$out>] {
                     let inner = unsafe {
-                        non_homo_op_letters!($fn_name, $l, $r -> $out)(x.inner, y.inner, ctx.rounding.as_repr(), ctx.flags.as_mut_ptr())
+                        op_letters!($fn_name, $l, $r -> $out)(x.inner, y.inner, ctx.rounding.as_repr(), ctx.flags.as_mut_ptr())
                     };
 
                     [<Decimal$out>] { inner }
@@ -946,8 +1017,8 @@ pub mod context {
         }};
     }
 
-    ctx_non_homo_binop! {
-        impl DecimalNonHomogeneousBinop where XX = <
+    ctx_binop! {
+        impl DecimalBinop where XX = <
             (32, 32, 32),
             (64, 64, 64),
             (64, 128, 64),
@@ -976,23 +1047,24 @@ pub mod context {
         }
     }
 
-    macro_rules! ctx_non_homo_triop {
+    macro_rules! ctx_ternop {
         (
-            impl DecimalNonHomogeneousTriop where XX = <$(($l:literal, $c:literal, $r:literal, $ret:literal)),+> $tt:tt
+            impl DecimalTernop where XX = <$(($l:literal, $c:literal, $r:literal, $ret:literal)),+> $tt:tt
         ) => {
-            ctx_non_homo_triop_def!(impl DecimalNonHomogeneousTriop $tt);
+            ctx_ternop_def!(impl DecimalTernop $tt);
 
-            $(ctx_non_homo_triop_impl!(impl DecimalNonHomogeneousTriop<$l, $c, $r> for $ret $tt);)+
+            $(ctx_ternop_impl!(impl DecimalTernop<$l, $c, $r> for $ret $tt);)+
         };
     }
 
-    macro_rules! ctx_non_homo_triop_def {
-        (impl DecimalNonHomogeneousTriop { $(
+    macro_rules! ctx_ternop_def {
+        (impl DecimalTernop { $(
             $(#[$attr:meta])*
             pub fn $fn_name:ident { $inner:ident };
         )*}) => {
 
-            pub trait DecimalNonHomogeneousTriop<L: Decimal, C: Decimal, R: Decimal>: Decimal { $(
+            /// Implemented for groups of decimal types that can be combined in ternary operations.
+            pub trait DecimalTernop<L: Decimal, C: Decimal, R: Decimal>: Decimal { $(
                 #[doc(hidden)]
                 fn $fn_name(ctx: &mut Context, x: L, y: C, z: R) -> Self;
             )*}
@@ -1000,25 +1072,25 @@ pub mod context {
             #[allow(clippy::wrong_self_convention)]
             impl Context { $(
                 $(#[$attr])*
-                pub fn $fn_name<L: Decimal, C: Decimal, R: Decimal, Ret: DecimalNonHomogeneousTriop<L, C, R>>(&mut self, x: L, y: C, z: R) -> Ret {
-                    <Ret as DecimalNonHomogeneousTriop<L, C, R>>::$fn_name(self, x, y, z)
+                pub fn $fn_name<L: Decimal, C: Decimal, R: Decimal, Ret: DecimalTernop<L, C, R>>(&mut self, x: L, y: C, z: R) -> Ret {
+                    <Ret as DecimalTernop<L, C, R>>::$fn_name(self, x, y, z)
                 }
             )*}
         };
     }
 
-    macro_rules! ctx_non_homo_triop_impl {
-        (impl DecimalNonHomogeneousTriop<$l:literal, $c:literal, $r:literal> for $out:literal {$(
+    macro_rules! ctx_ternop_impl {
+        (impl DecimalTernop<$l:literal, $c:literal, $r:literal> for $out:literal {$(
             $(#[$attr:meta])*
             pub fn $fn_name:ident  { $inner:ident };
         )*}) => { paste! {
 
-            impl DecimalNonHomogeneousTriop<[<Decimal$l>], [<Decimal$c>], [<Decimal$r>]> for [<Decimal$out>] { $(
+            impl DecimalTernop<[<Decimal$l>], [<Decimal$c>], [<Decimal$r>]> for [<Decimal$out>] { $(
                 $(#[$attr])*
                 #[inline]
                 fn $fn_name(ctx: &mut Context, x: [<Decimal$l>], y: [<Decimal$c>], z: [<Decimal$r>]) -> [<Decimal$out>] {
                     let inner = unsafe {
-                        non_homo_op_letters!($inner, $l, $c, $r -> $out)(x.inner, y.inner, z.inner, ctx.rounding.as_repr(), ctx.flags.as_mut_ptr())
+                        op_letters!($inner, $l, $c, $r -> $out)(x.inner, y.inner, z.inner, ctx.rounding.as_repr(), ctx.flags.as_mut_ptr())
                     };
 
                     [<Decimal$out>] { inner }
@@ -1027,8 +1099,8 @@ pub mod context {
         }};
     }
 
-    ctx_non_homo_triop! {
-        impl DecimalNonHomogeneousTriop where XX = <
+    ctx_ternop! {
+        impl DecimalTernop where XX = <
             (32, 32, 32, 32),
 
             (64, 64, 64, 64),
@@ -1496,6 +1568,7 @@ macro_rules! as_to_int_fn {
     )*};
 }
 
+/// Error returned by `from_str_radix` when a radix other than 10 is used.
 #[cfg(feature = "num-traits")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnsupportedRadixError;
@@ -1506,9 +1579,6 @@ impl fmt::Display for UnsupportedRadixError {
         write!(f, "Only radix 10 is supported")
     }
 }
-
-#[cfg(feature = "num-traits")]
-impl std::error::Error for UnsupportedRadixError {}
 
 #[cfg(feature = "num-traits")]
 macro_rules! from_primitive_int {
@@ -1668,8 +1738,11 @@ macro_rules! conversion_traits_def {
     ([$(($rust_round:ident, $ieee_round:ident, $c_round:ident)),*]) => {
         paste! {
             pub mod convert {
+                //! Traits for converting between decimals and integers.
+
                 use crate::*;
 
+                /// Implemented for decimals that can be converted to the specified integer.
                 pub trait DecimalToInt<Int: private::Sealed>: Decimal + Sized {
                     $(
                         #[doc(hidden)]
@@ -1689,11 +1762,13 @@ macro_rules! conversion_traits_def {
                     const INT_ZERO: Int;
                 }
 
+                /// Implemented for decimals that can be converted from other decimals of different size.
                 pub trait DecimalConvertFormat<Src: private::Sealed>: private::Sealed + Sized {
                     #[doc(hidden)]
                     fn convert_format(ctx: &mut Context, src: Src) -> Self;
                 }
 
+                /// Implemented for decimals that can be converted from integers.
                 pub trait DecimalFromInt<Int: private::Sealed>: Decimal + Sized {
                     #[doc(hidden)]
                     fn from_int(ctx: &mut Context, i: Int) -> Self;
@@ -3461,6 +3536,8 @@ macro_rules! decimal_impls {
             }
 
             pub mod [<decimal$x>] {
+                //! Contains mathematical constants for the decimal type.
+
                 /// Basic mathematical constants.
                 pub mod consts {
                     use crate::*;
@@ -3542,7 +3619,7 @@ macro_rules! decimal_impls {
                 #[doc(alias = "radix")]
                 pub const RADIX: u32 = 10;
 
-                // Number of significant digits in base 10.
+                /// Number of significant digits in base 10.
                 pub const MANTISSA_DIGITS: u32 = per_width!($x, 7, 16, 34);
 
                 // TODO https://github.com/rust-lang/rust/pull/89238
@@ -3557,11 +3634,14 @@ macro_rules! decimal_impls {
                 /// [Machine epsilon]: https://en.wikipedia.org/wiki/Machine_epsilon
                 pub const EPSILON: [<Decimal$x>] = per_width!($x, d32!(1E-6), d64!(1E-15), d128!(1E-33));
 
-                /// Smallest finite
+                /// Most negative
                 #[doc = "`Decimal" $x "`"]
                 /// value.
                 pub const MIN: [<Decimal$x>] = per_width!($x, d32!(-9999999E+90), d64!(-9999999999999999E+369), d128!(-9999999999999999999999999999999999E+6111));
 
+                /// Smallest positive non-subnormal finite
+                #[doc = "`Decimal" $x "`"]
+                /// value.
                 pub const MIN_POSITIVE: [<Decimal$x>] = per_width!($x, d32!(1E-95), d64!(1E-383), d128!(1E-6143));
 
                 /// Smallest positive subnormal
@@ -4127,7 +4207,7 @@ macro_rules! decimal_impls {
                     unsafe { self.to_int_checked().unwrap_unchecked() }
                 }
 
-                // TODO doc
+                /// Convert the given decimal into this type.
                 #[must_use = "this returns the result of the operation, without modifying the original"]
                 #[inline]
                 pub fn convert_from<Src>(src: Src) -> Self
@@ -4139,7 +4219,7 @@ macro_rules! decimal_impls {
                 }
 
 
-                // TODO doc
+                /// Convert this decimal into the given type.
                 #[must_use = "this returns the result of the operation, without modifying the original"]
                 #[inline]
                 pub fn convert_into<Dest>(self) -> Dest
@@ -4269,6 +4349,7 @@ macro_rules! decimal_impls {
                 #[doc(alias = "encodeDecimal")]
                 #[must_use = "this returns the result of the operation, without modifying the original"]
                 #[inline]
+                #[allow(clippy::useless_transmute)]
                 pub fn to_bits_decimal_encoding(self) -> [<u$x>] {
                     // SAFETY: `Decimal$x` is a plain old datatype so we can always transmute  it
                     unsafe { core::mem::transmute([<__bid_to_dpd$x>](self.inner)) }
@@ -4282,6 +4363,7 @@ macro_rules! decimal_impls {
                 #[doc(alias = "decodeDecimal")]
                 #[must_use]
                 #[inline]
+                #[allow(clippy::useless_transmute)]
                 pub fn from_bits_decimal_encoding(v: [<u$x>]) -> Self {
                     // SAFETY: `Decimal$x` is a plain old datatype so we can always transmute to it.
                     Self { inner: unsafe { [<__bid_dpd_to_bid$x>](core::mem::transmute(v)) } }
@@ -5140,18 +5222,16 @@ macro_rules! decimal_impls {
 
                 impl de::BorshDeserialize for [<Decimal$x>] {
                     #[inline]
-                    fn deserialize(buf: &mut &[u8]) -> io::Result<Self> {
+                    fn deserialize_reader<R: io::Read>(reader: &mut R) -> io::Result<Self> {
                         const SIZE: usize = core::mem::size_of::<[<Decimal$x>]>();
-                        if buf.len() < SIZE {
-                            return Err(io::Error::new(
-                                io::ErrorKind::InvalidInput,
-                                "Unexpected length of input",
-                            ));
-                        }
+                        let mut buf = [0u8; SIZE];
+
+                        reader.read_exact(&mut buf)?;
+
                         let res = [<Decimal$x>]::from_bits([<u$x>]::from_le_bytes(
                             buf[..SIZE].try_into().unwrap(),
                         ));
-                        *buf = &buf[SIZE..];
+
                         Ok(res)
                     }
                 }
@@ -5653,7 +5733,7 @@ macro_rules! decimal_impls {
             };
 
             #[cfg(feature = "float_next_after")]
-            impl float_next_after::NextAfter<[<Decimal$x>]> for [<Decimal$x>] {
+            impl float_next_after::NextAfter for [<Decimal$x>] {
                 fn next_after(self, y: [<Decimal$x>]) -> [<Decimal$x>] {
                     Context::new().next_after(self, y)
                 }
@@ -5757,6 +5837,8 @@ macro_rules! decimal_impls {
                     const NINE: Self = [<d$x>]!(9);
                     const TEN: Self = [<d$x>]!(10);
                     const EPSILON: Self = [<Decimal$x>]::EPSILON;
+                    const MIN: Self = [<Decimal$x>]::MIN;
+                    const MAX: Self = [<Decimal$x>]::MAX;
 
                     fn value(v: f32) -> Self {
                         [<Decimal$x>]::convert_from(v)
@@ -6679,7 +6761,7 @@ macro_rules! decimal_impls {
                             rusqlite::types::ValueRef::Real(f) => Ok(Context::new().convert_format(f)),
                             rusqlite::types::ValueRef::Integer(i) => Ok([<Decimal$x>]::from_int(i)),
                             rusqlite::types::ValueRef::Text(t) => Ok({
-                                match std::str::from_utf8(t) {
+                                match core::str::from_utf8(t) {
                                     Ok(s) => [<Decimal$x>]::from_str(s).unwrap(),
                                     Err(_) => [<Decimal$x>]::NAN,
                                 }
@@ -7101,6 +7183,16 @@ decimal_impls!(32, 64, 128);
 #[doc(hidden)]
 pub use decimalfp_macros_support::{to_bits_128, to_bits_32, to_bits_64};
 
+/// Allows writing [`Decimal32`] literals.
+///
+/// # Example
+///
+/// ```
+/// use decimalfp::prelude::*;
+///
+/// const DEC = d32!(1.2345);
+/// println!("{DEC}");
+/// ```
 #[macro_export]
 macro_rules! d32 {
     ($lit:expr) => {
@@ -7108,6 +7200,16 @@ macro_rules! d32 {
     };
 }
 
+/// Allows writing [`Decimal64`] literals.
+///
+/// # Example
+///
+/// ```
+/// use decimalfp::prelude::*;
+///
+/// const DEC = d64!(1.2342433245);
+/// println!("{d}");
+/// ```
 #[macro_export]
 macro_rules! d64 {
     ($lit:expr) => {
@@ -7115,6 +7217,16 @@ macro_rules! d64 {
     };
 }
 
+/// Allows writing [`Decimal128`] literals.
+///
+/// # Example
+///
+/// ```
+/// use decimalfp::prelude::*;
+///
+/// const DEC = d128!(1.2342329243433245);
+/// println!("{DEC}");
+/// ```
 #[macro_export]
 macro_rules! d128 {
     ($lit:expr) => {
@@ -7122,6 +7234,7 @@ macro_rules! d128 {
     };
 }
 
+/// Contains the most commonly used elements of the library.
 pub mod prelude {
     pub use crate::{d128, d32, d64, Decimal128, Decimal32, Decimal64};
 }

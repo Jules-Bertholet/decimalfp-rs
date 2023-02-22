@@ -32,7 +32,7 @@ fn main() {
     let tar_gz = File::open(tarball_path).unwrap();
     let tar = GzDecoder::new(tar_gz);
     let mut archive = Archive::new(tar);
-    archive.unpack(&out_path).unwrap();
+    archive.unpack(out_path).unwrap();
 
     // Apply patches
     // FIXME better patch method
@@ -724,6 +724,7 @@ __float128 exp10q(__float128 x)
 
     // Generate Rust bindings
     let mut bindings_gen = bindgen::Builder::default()
+        .use_core()
         // from IntelRDFPMathLib20U2/README
         .header(lib_src_path.join("bid_conf.h").to_str().unwrap())
         .header(lib_src_path.join("bid_functions.h").to_str().unwrap())
@@ -1049,7 +1050,7 @@ fn parse_test_dec(arg_str: &str, size: u8) -> String {
         }
     } else {
         format!(
-            r#"__bid{size}_from_string(b"{arg_str}\0" as *const u8 as *mut u8 as *mut ::std::os::raw::c_char, 0, &mut 0)"#
+            r#"__bid{size}_from_string(b"{arg_str}\0" as *const u8 as *mut u8 as *mut ::core::ffi::c_char, 0, &mut 0)"#
         )
     }
 }
