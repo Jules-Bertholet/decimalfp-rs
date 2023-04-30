@@ -18,36 +18,38 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            toolchain: stable
+            toolchain: '{0}'
             os: ubuntu-latest
             shell: bash
             cargo: cargo
+            careful: -Zcareful-sanitizer=address
 
           - target: i686-unknown-linux-gnu
-            toolchain: stable
+            toolchain: '{0}'
             os: ubuntu-latest
             shell: bash
             cargo: cargo
 
           - target: x86_64-pc-windows-msvc
-            toolchain: stable
+            toolchain: '{0}'
             os: windows-latest
             shell: powershell
             cargo: cargo
 
           - target: i686-pc-windows-msvc
-            toolchain: stable
+            toolchain: '{0}'
             os: windows-latest
             shell: powershell
             cargo: cargo
 
           - target: x86_64-pc-windows-gnu
-            toolchain: stable-x86_64-pc-windows-gnu
+            toolchain: '{0}'
             mingw: mingw-w64-x86_64
             os: windows-latest
             msystem: mingw64
             shell: msys2
             cargo: cargo
+            careful: "no"
 
           # - target: i686-pc-windows-gnu
           #  toolchain: stable-x86_64-pc-windows-gnu
@@ -58,10 +60,11 @@ jobs:
           #  cargo: cargo
 
           - target: x86_64-apple-darwin
-            toolchain: stable
+            toolchain: '{0}'
             os: macos-latest
             shell: bash
             cargo: cargo
+            careful: "no"
 
           # - target: aarch64-unknown-linux-gnu
           #   toolchain: stable
@@ -72,12 +75,18 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install Rust toolchain
+      - name: Install nightly Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          toolchain: ${{ format(matrix.toolchain, 'nightly') }}
+
+      - name: Install stable Rust toolchain
         uses: dtolnay/rust-toolchain@v1
         with:
           components: clippy, rustfmt
           target: ${{ matrix.target }}
-          toolchain: ${{ matrix.toolchain }}
+          toolchain: ${{ format(matrix.toolchain, 'stable') }}
 
       - name: Get Rust LLVM version
         if: matrix.target == 'x86_64-unknown-linux-gnu'
@@ -119,6 +128,9 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: cargo install clippy-sarif sarif-fmt
 
+      - name: Install cargo careful
+        run: cargo install cargo-careful
+
       - name: Check formatting
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: cargo fmt --all --check
@@ -134,6 +146,10 @@ jobs:
 
       - name: Run decimalfp tests (default features)
         run: ${{ matrix.shell }} -c '${{ matrix.cargo }} test --package decimalfp --target ${{ matrix.target }}'
+
+      - name: Run tests with sanitizer
+        if: matrix.cargo == 'cargo' && matrix.careful != 'no'
+        run: ${{ matrix.shell }} -c 'cargo +${{ format(matrix.toolchain, 'nightly') }} careful test --all --target ${{ matrix.target }} ${{ matrix.careful }}'
 
       - name: Run inteldfp-sys tests (all features)
         if: matrix.target == 'x86_64-unknown-linux-gnu'
